@@ -87,6 +87,7 @@ enum Scope {
 fn parse_tokens(src: Vec<Token>) -> Result<String, String> {
     let mut vars: HashMap<&str, i32> = HashMap::new();
     let mut consts: HashSet<i32> = HashSet::new();
+    consts.insert(0);
     let mut program: String = String::new();
 
     let mut scope_stack: Vec<Scope> = Vec::new();
@@ -413,10 +414,10 @@ fn parse_tokens(src: Vec<Token>) -> Result<String, String> {
                     None => return Err(format!("Error on line {line_no}: 'endif' found while 'if' statement was not inner most control flow construct")),
                     Some(Scope::If { if_start_line, else_start_line: _, has_else }) => {
                         if has_else {
-                            program += &format!("if_{if_start_line}_end ")
+                            program += &format!("if_{if_start_line}_end ADD const_0\n")
                         }
                         else {
-                            program += &format!("if_{if_start_line}_else ")
+                            program += &format!("if_{if_start_line}_else ADD const_0\n")
                         }
                     }
                     _ => return Err(format!("Error on line {line_no}: 'endif' found while 'if' statement was not inner most control flow construct"))
