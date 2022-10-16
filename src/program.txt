@@ -1,0 +1,11 @@
+input a
+input b
+if a == b //Conditionals are not chainable: e.g. a == b && a == 10 is not possible
+    if a == 10
+        print 10
+    else
+        print 20
+    endif
+else
+    print 30
+endif

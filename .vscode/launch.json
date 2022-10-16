@@ -20,7 +20,7 @@
                 }
             },
             "args": [
-                "src/test.txt"
+                "src/program.txt"
             ],
             "cwd": "${workspaceFolder}"
         },
