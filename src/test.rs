@@ -81,7 +81,7 @@ fn tokenise(src: &str) -> Vec<Token> {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Scope {
     While{start_line: usize},
-    If{else_start_line: usize, if_start_line: usize},
+    If{else_start_line: usize, if_start_line: usize, has_else: bool},
 }
 
 fn parse_tokens(src: Vec<Token>) -> Result<String, String> {
@@ -93,7 +93,7 @@ fn parse_tokens(src: Vec<Token>) -> Result<String, String> {
     
     let lines: Vec<&[Token]> = src.split(|t| t.token_type == NewLine).collect();
 
-    for line in lines {
+    'lines: for line in lines {
         if line.len() == 0 {
             continue;
         }
@@ -101,6 +101,7 @@ fn parse_tokens(src: Vec<Token>) -> Result<String, String> {
         match line[0].token_type {
             //Variable assignment
             Identifier(assigned_to) => {
+
                 if line.len() == 1 || line[1].token_type != OperatorAssignment {
                     return Err(format!("Error on line {line_no}: Identifer at the beginning of a line must be followed by '='"));
                 }
@@ -115,6 +116,10 @@ fn parse_tokens(src: Vec<Token>) -> Result<String, String> {
                             program += &format!("LDA var_{s}\n");
                         },
                         Number(n) => {
+                            if line.len() == 3 && !vars.contains_key(assigned_to){
+                                vars.insert(assigned_to, n);
+                                continue;
+                            }
                             consts.insert(n);
                             program += &format!("LDA const_{n}\n");
                         }
@@ -124,6 +129,7 @@ fn parse_tokens(src: Vec<Token>) -> Result<String, String> {
 
                 match line.get(3) {
                     None => {
+                        vars.insert(assigned_to, 0);
                         program += &format!("STA var_{assigned_to}\n");
                         continue
                     },
@@ -145,9 +151,16 @@ fn parse_tokens(src: Vec<Token>) -> Result<String, String> {
                         _ => return Err(format!("Error on line {line_no} token 4: Expected identifer or number"))
                     }
                 }
-
                 program += &format!("STA var_{assigned_to}\n");
+
+                if line.get(5).is_some() {
+                    return Err(format!("Error on line {line_no} token 5: Unexpected token"))
+                }
                 
+                if !vars.contains_key(assigned_to) {
+                    vars.insert(assigned_to, 0);
+                }
+
             }
             //Input
             Input => {
@@ -163,20 +176,54 @@ fn parse_tokens(src: Vec<Token>) -> Result<String, String> {
                         _ => return Err(format!("Error on line {line_no} token 1: Expected identifier"))
                     }
                 }
+
+                if line.get(2).is_some() {
+                    return Err(format!("Error on line {line_no} token 2: Unexpected token"))
+                }
             }
             //Output
             Output => {
                 match line.get(1) {
                     None => return Err(format!("Error on line {line_no}: Expected identifier or number")),
                     Some(t) => match t.token_type {
-                        Identifier(s) => program += &format!("LDA var_{s}\nOUT\n"),
+                        Identifier(s) => {
+                            if !vars.contains_key(s) {
+                                return Err(format!("Error on line {line_no} token 2: Variable unknown identifier '{s}'"))
+                            }
+                            program += &format!("LDA var_{s}\n");
+                        },
                         Number(n) => {
                             consts.insert(n);
-                            program += &format!("LDA const_{n}\nOUT\n");
+                            program += &format!("LDA const_{n}\n");
                         }
-                        _ => return Err(format!("Error on line {line_no} token 1: Expected identifier or number"))
+                        _ => return Err(format!("Error on line {line_no} token 2: Expected identifier or number"))
                     }
                 }
+
+                match line.get(2) {
+                    None => {
+                        program += &format!("OUT\n");
+                        continue
+                    },
+                    Some(t) => match t.token_type {
+                        OperatorAdd => program += "ADD ",
+                        OperatorSub => program += "SUB ",
+                        _ => return Err(format!("Error on line {line_no} token 3: Expected '+' or '1'"))
+                    }
+                }
+
+                match line.get(3) {
+                    None => return Err(format!("Error on line {line_no}: Expected identifer or number")),
+                    Some(t) => match t.token_type {
+                        Identifier(s) => program += &format!("var_{s}\n"),
+                        Number(n) => {
+                            consts.insert(n);
+                            program += &format!("const_{n}\n")
+                        },
+                        _ => return Err(format!("Error on line {line_no} token 4: Expected identifer or number"))
+                    }
+                }
+                program += &format!("OUT\n");
             }
             //While
             While => {
@@ -229,6 +276,17 @@ fn parse_tokens(src: Vec<Token>) -> Result<String, String> {
 
                 program += &format!("{label_if_true} ");
             }
+            //Break
+            Break => {
+                for frame in scope_stack.iter().rev() {
+                    if let Scope::While{start_line} = frame {
+                        program += &format!("BRA while_{start_line}_end\n");
+                        continue 'lines;
+                    }
+                }
+
+                return Err(format!("Error on line {line_no}: 'break' while not in loop"));
+            }
             //End while
             EndWhile => {
                 match scope_stack.pop() {
@@ -239,7 +297,7 @@ fn parse_tokens(src: Vec<Token>) -> Result<String, String> {
             }
             //If
             If => {
-                scope_stack.push(Scope::If { if_start_line: line_no, else_start_line: line_no });
+                scope_stack.push(Scope::If { if_start_line: line_no, else_start_line: line_no , has_else: false});
 
                 let lhs = match line.get(1) {
                     None => return Err(format!("Error on line {line_no}: Expected condition formed of two arguments and a comparison operator")),
@@ -287,14 +345,14 @@ fn parse_tokens(src: Vec<Token>) -> Result<String, String> {
             Else => {
                 match scope_stack.pop() {
                     None => return Err(format!("Error on line {line_no}: 'else' found while 'if' statement was not inner most control flow construct")),
-                    Some(Scope::If { if_start_line, else_start_line }) => match line.get(1) {
+                    Some(Scope::If { if_start_line, else_start_line, has_else: _ }) => match line.get(1) {
                         None => {
-                            scope_stack.push(Scope::If { if_start_line: if_start_line, else_start_line: line_no });
+                            scope_stack.push(Scope::If { if_start_line: if_start_line, else_start_line: line_no, has_else: true });
                             program += &format!("BRA if_{if_start_line}_end\nif_{else_start_line}_else ");
-                        }
+                        },
                         Some(t) => match t.token_type {
                             If => {
-                                scope_stack.push(Scope::If { if_start_line: if_start_line, else_start_line: line_no });
+                                scope_stack.push(Scope::If { if_start_line: if_start_line, else_start_line: line_no, has_else: true });
 
                                 let lhs = match line.get(2) {
                                     None => return Err(format!("Error on line {line_no}: Expected condition formed of two arguments and a comparison operator")),
@@ -342,15 +400,25 @@ fn parse_tokens(src: Vec<Token>) -> Result<String, String> {
                             },
                             _ => return Err(format!("Error on line {line_no}: 'else' found while 'if' statement was not inner most control flow construct"))
                         }
-                    }
-                    _ => return Err(format!("Error on line {line_no}: expected 'else if' or just 'else'"))
+                    },
+                    s => {
+                        println!("{:?}", s);
+                        println!("{:?}", scope_stack);
+                        return Err(format!("Error on line {line_no}: expected 'else if' or just 'else'"))}
                 }
             }
             //End if
             EndIf => {
                 match scope_stack.pop() {
                     None => return Err(format!("Error on line {line_no}: 'endif' found while 'if' statement was not inner most control flow construct")),
-                    Some(Scope::If { if_start_line, else_start_line: _ }) =>  program += &format!("if_{if_start_line}_end "),
+                    Some(Scope::If { if_start_line, else_start_line: _, has_else }) => {
+                        if has_else {
+                            program += &format!("if_{if_start_line}_end ")
+                        }
+                        else {
+                            program += &format!("if_{if_start_line}_else ")
+                        }
+                    }
                     _ => return Err(format!("Error on line {line_no}: 'endif' found while 'if' statement was not inner most control flow construct"))
                 }
             }
@@ -359,7 +427,7 @@ fn parse_tokens(src: Vec<Token>) -> Result<String, String> {
         }
     }
 
-    program += "HLT\n";
+    program += "HLT\n\n";
     for (s, n) in vars {
         program += &format!("var_{s} DAT {n}\n");
     }
