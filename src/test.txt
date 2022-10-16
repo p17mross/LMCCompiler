@@ -1,0 +1,12 @@
+while true
+    input v
+    if v > 10
+        print 10
+    else if v > 5
+        print 20
+    else if v > -30
+        print 30
+    else
+        print 40
+    endif
+endwhile
