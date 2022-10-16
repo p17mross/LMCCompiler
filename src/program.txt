@@ -1,11 +1,35 @@
+// Inputs 3 numbers and prints them in ascending order
+
 input a
 input b
-if a == b //Conditionals are not chainable: e.g. a == b && a == 10 is not possible
-    if a == 10
-        print 10
+input c
+
+if a < b
+    if b < c
+        print a // a < b < c
+        print b
+        print c
+    else if a < c
+        print a // a < c < b
+        print c
+        print b
     else
-        print 20
+        print c // c < a < b
+        print a
+        print b
     endif
 else
-    print 30
+    if a < c
+        print b // b < a < c
+        print a
+        print c
+    else if b < c
+        print b // b < c < a
+        print c
+        print a
+    else
+        print c // c < b < a
+        print b
+        print a
+    endif
 endif
