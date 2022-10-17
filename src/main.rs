@@ -1,7 +1,7 @@
 use std::env;
 use std::fs;
 
-mod test;
+mod compiler;
 
 fn main() -> Result<(), ()> {
     let args: Vec<String> = env::args().collect();
@@ -9,7 +9,7 @@ fn main() -> Result<(), ()> {
     let program = fs::read_to_string(args[1].clone())
     .expect("Should have been able to read the file");
 
-    match test::compile(&program) {
+    match compiler::compile(&program) {
         Ok(s) => {
             print!("{s}"); 
             return Ok(())
