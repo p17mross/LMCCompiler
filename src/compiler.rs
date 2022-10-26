@@ -160,7 +160,7 @@ fn parse_tokens(src: Vec<Token>) -> Result<String, String> {
                         },
                         Number(n) => {
                             // Optimisation for if a variable is initialised with a constant value
-                            if line.len() == 3 && !vars.contains_key(assigned_to){
+                            if line.len() == 3 && !vars.contains_key(assigned_to) && scope_stack.len() == 0 {
                                 vars.insert(assigned_to, n);
                                 continue;
                             }
